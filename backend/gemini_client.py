@@ -10,13 +10,26 @@ from google.genai import errors, types
 
 log = logging.getLogger("ar-vision")
 
-PROMPT = """Tu es un assistant de reconnaissance d'objets pour une application de réalité augmentée.
-Le détecteur local pense que l'image montre : « {label} » (indice possiblement imprécis).
+PROMPT_INTRO = "Tu es un assistant de reconnaissance d'objets pour une application de réalité augmentée.\n"
+
+# Tap sur un cadre COCO-SSD : l'image est déjà recadrée sur l'objet.
+PROMPT_BOX = """Le détecteur local pense que l'image montre : « {label} » (indice possiblement imprécis).
 Identifie précisément l'objet principal de l'image (marque ou modèle si clairement visible).
+"""
 
-Réponds UNIQUEMENT avec un objet JSON valide, en français, de la forme :
-{{"nom": "...", "categorie": "...", "description": "...", "faits": ["...", "...", "..."]}}
+# Tap à un endroit précis : l'image est centrée sur le doigt. Les modèles rapides suivent bien
+# mieux « le centre de l'image » que des coordonnées explicites.
+PROMPT_POINT = """L'utilisateur a touché le CENTRE exact de cette image pour désigner un objet.{hint}
+Identifie précisément l'objet réel situé sous ce point central (marque, modèle, espèce ou variété si
+c'est clairement reconnaissable), quel qu'il soit : objet, plante, animal, aliment, outil, bâtiment,
+œuvre, vêtement… Choisis l'objet le plus précis sous le doigt (une chaussure plutôt que la personne
+qui la porte), mais toujours un objet entier, jamais une partie d'objet (pas « patte », « poignée »).
+Donne aussi "boite" : la boîte englobante de CET objet, [ymin, xmin, ymax, xmax] en entiers
+normalisés de 0 à 1000.
+"""
 
+PROMPT_RULES = """
+Réponds UNIQUEMENT avec un objet JSON valide, en français.
 Règles :
 - "nom" : nom court et précis de l'objet (5 mots max).
 - "categorie" : catégorie générale en un ou deux mots.
@@ -34,6 +47,23 @@ RESPONSE_SCHEMA = {
     },
     "required": ["nom", "categorie", "description", "faits"],
 }
+
+POINT_RESPONSE_SCHEMA = {
+    **RESPONSE_SCHEMA,
+    "properties": {
+        **RESPONSE_SCHEMA["properties"],
+        "boite": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+    },
+    "required": [*RESPONSE_SCHEMA["required"], "boite"],
+}
+
+
+def build_request(label: str, locate: bool) -> tuple[str, dict]:
+    """Retourne (prompt, schéma JSON) : recadrage d'un objet, ou objet sous le doigt à localiser."""
+    if locate:
+        hint = f"\nIndice du détecteur local pour cette zone : « {label} »." if label else ""
+        return PROMPT_INTRO + PROMPT_POINT.format(hint=hint) + PROMPT_RULES, POINT_RESPONSE_SCHEMA
+    return PROMPT_INTRO + PROMPT_BOX.format(label=label) + PROMPT_RULES, RESPONSE_SCHEMA
 
 
 class RateLimitError(Exception):
@@ -61,8 +91,9 @@ class GeminiVision:
         self.model = " → ".join(self.models)
         self._timeout_ms = max(MIN_TIMEOUT_MS, int(timeout_s * 1000))
 
-    def analyze(self, image_bytes: bytes, mime_type: str, label: str) -> dict:
-        contents = [types.Part.from_bytes(data=image_bytes, mime_type=mime_type), PROMPT.format(label=label)]
+    def analyze(self, image_bytes: bytes, mime_type: str, label: str, locate: bool = False) -> dict:
+        prompt, schema = build_request(label, locate)
+        contents = [types.Part.from_bytes(data=image_bytes, mime_type=mime_type), prompt]
         last_error = None
         last_code = None
 
@@ -74,7 +105,7 @@ class GeminiVision:
                     contents=contents,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        response_json_schema=RESPONSE_SCHEMA,
+                        response_json_schema=schema,
                         temperature=0.4,
                         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                         http_options=types.HttpOptions(
@@ -126,7 +157,20 @@ def normalize_result(raw_text: str | None) -> dict:
     }
     if not result["nom"]:
         raise VisionServiceError("Le modèle n'a pas identifié l'objet.")
+    if "boite" in data:
+        result["boite"] = normalize_box(data["boite"])
     return result
+
+
+def normalize_box(raw) -> list[int] | None:
+    """Valide une boîte [ymin, xmin, ymax, xmax] normalisée 0-1000 ; None si inexploitable."""
+    try:
+        ymin, xmin, ymax, xmax = (min(1000, max(0, int(v))) for v in raw)
+    except (TypeError, ValueError):
+        return None
+    if ymax - ymin < 10 or xmax - xmin < 10:
+        return None
+    return [ymin, xmin, ymax, xmax]
 
 
 class MockVision:
@@ -139,12 +183,12 @@ class MockVision:
         self.simulate_rate_limit = simulate_rate_limit
         self.model = "mock-ratelimit" if simulate_rate_limit else "mock"
 
-    def analyze(self, image_bytes: bytes, mime_type: str, label: str) -> dict:
+    def analyze(self, image_bytes: bytes, mime_type: str, label: str, locate: bool = False) -> dict:
         time.sleep(random.uniform(0.6, 1.2))  # simule la latence réseau
         if self.simulate_rate_limit:
             raise RateLimitError("Quota simulé atteint.")
-        return {
-            "nom": label.capitalize(),
+        result = {
+            "nom": (label or "objet").capitalize(),
             "categorie": "Objet du quotidien",
             "description": f"Ceci est une réponse simulée pour « {label} ». "
             "Ajoutez votre clé GEMINI_API_KEY pour une vraie analyse.",
@@ -154,3 +198,6 @@ class MockVision:
                 f"Image reçue : {len(image_bytes) // 1024} Ko.",
             ],
         }
+        if locate:
+            result["boite"] = [300, 300, 700, 700]
+        return result

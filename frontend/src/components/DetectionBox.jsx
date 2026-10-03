@@ -15,7 +15,7 @@ export default function DetectionBox({ rect, label, score, mode, stale, onTap })
       style={style}
       onClick={(e) => {
         e.stopPropagation()
-        onTap()
+        onTap(e)
       }}
       aria-label={`Analyser : ${labelFr(label)}`}
     >
@@ -26,7 +26,9 @@ export default function DetectionBox({ rect, label, score, mode, stale, onTap })
       {mode === 'scanning' && <span className="det-box__scan" />}
       <span className="det-box__label">
         {mode === 'scanning' ? 'Analyse…' : labelFr(label)}
-        {mode !== 'scanning' && <span className="det-box__score">{Math.round(score * 100)}%</span>}
+        {mode !== 'scanning' && score != null && (
+          <span className="det-box__score">{Math.round(score * 100)}%</span>
+        )}
       </span>
     </button>
   )

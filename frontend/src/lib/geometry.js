@@ -10,6 +10,11 @@ export function getCoverTransform(videoWidth, videoHeight, viewWidth, viewHeight
   }
 }
 
+/** point écran -> coordonnées vidéo natives */
+export function screenPointToVideo(sx, sy, { scale, offsetX, offsetY }) {
+  return { x: (sx - offsetX) / scale, y: (sy - offsetY) / scale }
+}
+
 /** bbox vidéo [x, y, w, h] -> rectangle écran { x, y, width, height } */
 export function videoBoxToScreen([x, y, w, h], { scale, offsetX, offsetY }) {
   return {
@@ -28,6 +33,15 @@ export function iou(a, b) {
   const inter = ix * iy
   const union = aw * ah + bw * bh - inter
   return union > 0 ? inter / union : 0
+}
+
+/** Intersection de deux bbox [x, y, w, h] ; null si elles ne se recouvrent pas. */
+export function intersectBoxes([ax, ay, aw, ah], [bx, by, bw, bh]) {
+  const x = Math.max(ax, bx)
+  const y = Math.max(ay, by)
+  const w = Math.min(ax + aw, bx + bw) - x
+  const h = Math.min(ay + ah, by + bh) - y
+  return w > 0 && h > 0 ? [x, y, w, h] : null
 }
 
 export const clamp = (value, min, max) => Math.min(Math.max(value, min), max)

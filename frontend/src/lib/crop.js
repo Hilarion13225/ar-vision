@@ -1,27 +1,30 @@
 const MAX_SIDE = 640
-const PADDING = 0.12 // marge autour du cadre pour donner du contexte au modèle
-
 /**
- * Recadre l'objet dans la frame vidéo courante et renvoie une data URL JPEG.
- * `box` est en coordonnées natives de la vidéo : [x, y, w, h].
+ * Recadrage carré exactement centré sur le point touché (coordonnées vidéo) : les zones hors de
+ * l'image sont laissées noires plutôt que de décaler le carré, pour que le doigt reste au centre.
+ * Renvoie l'image et la région couverte (qui peut déborder de la frame).
  */
-export function cropVideoFrame(video, [x, y, w, h]) {
-  const vw = video.videoWidth
-  const vh = video.videoHeight
-  const padX = w * PADDING
-  const padY = h * PADDING
-
-  const sx = Math.max(0, x - padX)
-  const sy = Math.max(0, y - padY)
-  const sw = Math.min(vw, x + w + padX) - sx
-  const sh = Math.min(vh, y + h + padY) - sy
-  if (sw < 2 || sh < 2) throw new Error('Zone de recadrage trop petite.')
-
-  const ratio = Math.min(1, MAX_SIDE / Math.max(sw, sh))
+export function cropCenteredOn(video, vx, vy, side) {
+  const region = [vx - side / 2, vy - side / 2, side, side]
+  const out = Math.min(MAX_SIDE, Math.round(side))
+  const ratio = out / side
   const canvas = document.createElement('canvas')
-  canvas.width = Math.round(sw * ratio)
-  canvas.height = Math.round(sh * ratio)
+  canvas.width = out
+  canvas.height = out
   const ctx = canvas.getContext('2d')
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
-  return canvas.toDataURL('image/jpeg', 0.85)
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, out, out)
+
+  const sx = Math.max(0, region[0])
+  const sy = Math.max(0, region[1])
+  const sw = Math.min(video.videoWidth, region[0] + side) - sx
+  const sh = Math.min(video.videoHeight, region[1] + side) - sy
+  if (sw < 2 || sh < 2) throw new Error('Touchez à l’intérieur de l’image.')
+  ctx.drawImage(video, sx, sy, sw, sh, (sx - region[0]) * ratio, (sy - region[1]) * ratio, sw * ratio, sh * ratio)
+  return { image: canvas.toDataURL('image/jpeg', 0.85), region }
+}
+
+/** Convertit une boîte Gemini [ymin, xmin, ymax, xmax] (0-1000, relative à region) en bbox vidéo. */
+export function geminiBoxToVideo([ymin, xmin, ymax, xmax], [rx, ry, rw, rh]) {
+  return [rx + (xmin / 1000) * rw, ry + (ymin / 1000) * rh, ((xmax - xmin) / 1000) * rw, ((ymax - ymin) / 1000) * rh]
 }

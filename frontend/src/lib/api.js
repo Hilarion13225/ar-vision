@@ -8,7 +8,8 @@ export class ApiError extends Error {
   }
 }
 
-export async function analyzeObject({ label, image }) {
+/** mode "box" : tap sur un cadre détecté ; mode "point" : tap libre, Gemini localise l'objet. */
+export async function analyzeObject({ label, image, mode = 'box' }) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
@@ -17,7 +18,7 @@ export async function analyzeObject({ label, image }) {
     response = await fetch(`${API_BASE}/api/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label, image }),
+      body: JSON.stringify({ label, image, mode }),
       signal: controller.signal,
     })
   } catch (err) {

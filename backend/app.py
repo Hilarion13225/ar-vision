@@ -85,7 +85,11 @@ def create_app() -> Flask:
     @app.post("/api/analyze")
     def analyze():
         body = request.get_json(silent=True) or {}
-        label = str(body.get("label", "")).strip()[:50] or "objet"
+        label = str(body.get("label", "")).strip()[:50]
+        # mode "box" (défaut) : l'image est un recadrage de l'objet.
+        # mode "point" : l'image est centrée sur le doigt ; le modèle identifie l'objet touché
+        # (n'importe quel objet réel) et renvoie sa boîte englobante.
+        locate = body.get("mode") == "point"
         image_field = body.get("image")
         if not isinstance(image_field, str) or not image_field:
             return error("Champ 'image' manquant (base64 attendu).", 400, "bad_request")
@@ -96,8 +100,10 @@ def create_app() -> Flask:
         except (ValueError, binascii.Error, UnidentifiedImageError) as exc:
             return error(f"Image invalide : {exc}", 400, "bad_image")
 
-        key = f"{label}:{fingerprint}"
-        cached = cache.get(label, fingerprint)
+        # Les deux modes ne renvoient pas la même chose (boîte ou non) : caches séparés.
+        cache_label = f"point:{label}" if locate else (label or "objet")
+        key = f"{cache_label}:{fingerprint}"
+        cached = cache.get(cache_label, fingerprint)
         if cached is not None:
             log.info("Cache HIT %s", key)
             return jsonify({**cached, "cached": True})
@@ -110,7 +116,7 @@ def create_app() -> Flask:
             )
 
         try:
-            result = vision.analyze(image_bytes, mime_type, label)
+            result = vision.analyze(image_bytes, mime_type, label if locate else (label or "objet"), locate=locate)
         except RateLimitError:
             log.warning("Quota Gemini atteint")
             return error(
@@ -123,7 +129,7 @@ def create_app() -> Flask:
             return error("Le service d'analyse IA est momentanément indisponible.", 502, "upstream")
 
         log.info("Analyse %s -> %s", key, result["nom"])
-        cache.set(label, fingerprint, result)
+        cache.set(cache_label, fingerprint, result)
         return jsonify({**result, "cached": False})
 
     @app.errorhandler(413)

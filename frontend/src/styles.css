@@ -83,9 +83,9 @@ button {
   cursor: pointer;
   /* Interpolation entre deux détections : le cadre glisse au lieu de sauter. */
   transition:
-    transform 120ms linear,
-    width 120ms linear,
-    height 120ms linear,
+    transform var(--det-ms, 120ms) linear,
+    width var(--det-ms, 120ms) linear,
+    height var(--det-ms, 120ms) linear,
     opacity 250ms ease,
     background-color 250ms ease;
   animation: box-in 380ms var(--ease-spring) both;
@@ -352,6 +352,12 @@ button {
   pointer-events: none;
 }
 
+.hud__fps {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
 .hud__dot {
   width: 8px;
   height: 8px;
@@ -508,4 +514,63 @@ button {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* ---------- Flash ---------- */
+
+.torch {
+  position: absolute;
+  top: calc(var(--safe-top) + 10px);
+  right: 16px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: rgba(5, 10, 16, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease, transform 150ms ease;
+}
+
+.torch:active {
+  transform: scale(0.92);
+}
+
+.torch svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.torch--on {
+  background: var(--warning);
+  border-color: var(--warning);
+  box-shadow: 0 0 22px rgba(251, 191, 36, 0.55);
+}
+
+.torch--on svg {
+  fill: #1c1402;
+  stroke: #1c1402;
+}
+
+.torch--suggested {
+  border-color: var(--warning);
+  animation: torch-pulse 1.4s ease-in-out infinite;
+}
+
+.torch--suggested svg {
+  stroke: var(--warning);
+}
+
+@keyframes torch-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(251, 191, 36, 0); }
 }
